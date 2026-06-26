@@ -1,0 +1,16 @@
+# Build artifacts
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+.mypy_cache/
+
+# ROS2 build outputs
+build/
+install/
+log/
+
+# Claude Code
+.claude/
+
+# Archives
+*.zip

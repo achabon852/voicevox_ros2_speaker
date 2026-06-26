@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VOICEVOX WEB 発話システム</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', 'Noto Sans JP', sans-serif;
+      background: #f0f2f5;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding: 2.5rem 1rem;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 14px;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.10);
+      padding: 2rem 2rem 2.5rem;
+      width: 100%;
+      max-width: 520px;
+      align-self: flex-start;
+    }
+
+    h1 {
+      font-size: 1.35rem;
+      color: #1a1a2e;
+      text-align: center;
+      margin-bottom: 1.75rem;
+      letter-spacing: 0.02em;
+    }
+
+    /* ── Status bar ─────────────────────────────────────────────────────── */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0.6rem 1rem;
+      border-radius: 8px;
+      border: 1px solid #e9ecef;
+      background: #f8f9fa;
+      margin-bottom: 1.75rem;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .dot-idle     { background: #6c757d; }
+    .dot-speaking { background: #28a745; animation: blink 1.2s ease-in-out infinite; }
+    .dot-error    { background: #dc3545; }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.35; }
+    }
+
+    #status-text { font-size: 0.875rem; color: #495057; }
+
+    /* ── Form elements ──────────────────────────────────────────────────── */
+    .form-group { margin-bottom: 1.25rem; }
+
+    label {
+      display: block;
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: #495057;
+      margin-bottom: 0.4rem;
+      letter-spacing: 0.03em;
+    }
+
+    select, textarea {
+      width: 100%;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid #ced4da;
+      border-radius: 7px;
+      font-size: 0.95rem;
+      color: #212529;
+      background: #fff;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      appearance: auto;
+    }
+
+    select:focus, textarea:focus {
+      outline: none;
+      border-color: #86b7fe;
+      box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.18);
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 110px;
+      line-height: 1.6;
+    }
+
+    /* ── Sliders ────────────────────────────────────────────────────────── */
+    .slider-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    input[type="range"] {
+      flex: 1;
+      accent-color: #0d6efd;
+      height: 4px;
+      cursor: pointer;
+    }
+
+    .slider-val {
+      width: 2.8rem;
+      text-align: right;
+      font-size: 0.88rem;
+      color: #495057;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ── Speak button ───────────────────────────────────────────────────── */
+    #speak-btn {
+      width: 100%;
+      padding: 0.72rem;
+      background: #0d6efd;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      transition: background 0.15s, opacity 0.15s, transform 0.08s;
+    }
+
+    #speak-btn:hover:not(:disabled) {
+      background: #0b5ed7;
+      transform: translateY(-1px);
+    }
+
+    #speak-btn:active:not(:disabled) { transform: translateY(0); }
+
+    #speak-btn:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
+    /* ── Connection warning ─────────────────────────────────────────────── */
+    #conn-warn {
+      font-size: 0.8rem;
+      color: #dc3545;
+      margin-top: 0.6rem;
+      display: none;
+    }
+
+    /* ── Mobile adjustments (≤480px) ────────────────────────────────────── */
+    @media (max-width: 480px) {
+      .card { padding: 1.5rem 1.25rem 2rem; }
+      h1    { font-size: 1.1rem; }
+    }
+  </style>
+</head>
+<body>
+<div class="card">
+  <h1>VOICEVOX WEB 発話システム</h1>
+
+  <div class="status-bar">
+    <span class="dot dot-idle" id="status-dot"></span>
+    <span id="status-text">rosbridge に接続中…</span>
+  </div>
+
+  <div class="form-group">
+    <label for="speaker">話者</label>
+    <select id="speaker">
+      <option value="2">四国めたん — ノーマル（デフォルト）</option>
+    </select>
+  </div>
+
+  <div class="form-group">
+    <label>速度</label>
+    <div class="slider-row">
+      <input type="range" id="speed" min="0.5" max="2.0" step="0.1" value="1.0">
+      <span class="slider-val" id="speed-val">1.0</span>
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label>音量</label>
+    <div class="slider-row">
+      <input type="range" id="volume" min="0.0" max="2.0" step="0.1" value="1.0">
+      <span class="slider-val" id="volume-val">1.0</span>
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label for="text">発話テキスト</label>
+    <textarea id="text" placeholder="ここにテキストを入力してください…"></textarea>
+  </div>
+
+  <button id="speak-btn" disabled>発話</button>
+  <p id="conn-warn">rosbridge に接続できません。再接続中…</p>
+</div>
+
+<script src="roslib.min.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var ROSBRIDGE_URL   = 'ws://localhost:9090';
+  var VOICEVOX_URL    = 'http://localhost:50021';
+  var RECONNECT_DELAY = 3000;  // ms
+
+  // ── DOM refs ─────────────────────────────────────────────────────────
+  var statusDot  = document.getElementById('status-dot');
+  var statusText = document.getElementById('status-text');
+  var speakerSel = document.getElementById('speaker');
+  var speedEl    = document.getElementById('speed');
+  var speedVal   = document.getElementById('speed-val');
+  var volumeEl   = document.getElementById('volume');
+  var volumeVal  = document.getElementById('volume-val');
+  var textEl     = document.getElementById('text');
+  var speakBtn   = document.getElementById('speak-btn');
+  var connWarn   = document.getElementById('conn-warn');
+
+  // ── Slider live labels ───────────────────────────────────────────────
+  speedEl.addEventListener('input', function () {
+    speedVal.textContent = parseFloat(speedEl.value).toFixed(1);
+  });
+  volumeEl.addEventListener('input', function () {
+    volumeVal.textContent = parseFloat(volumeEl.value).toFixed(1);
+  });
+
+  // ── VOICEVOX speaker list ────────────────────────────────────────────
+  fetch(VOICEVOX_URL + '/speakers')
+    .then(function (r) { return r.json(); })
+    .then(function (speakers) {
+      speakerSel.innerHTML = '';
+      speakers.forEach(function (s) {
+        s.styles.forEach(function (style) {
+          var opt = document.createElement('option');
+          opt.value       = style.id;
+          opt.textContent = s.name + '　' + style.name;
+          speakerSel.appendChild(opt);
+        });
+      });
+    })
+    .catch(function () {
+      /* Keep default option — rosbridge status will guide the user. */
+    });
+
+  // ── Status helper ────────────────────────────────────────────────────
+  function setStatus(state, message) {
+    statusDot.className = 'dot dot-' + state;
+    statusText.textContent = message;
+    speakBtn.disabled = (state === 'speaking');
+  }
+
+  // ── rosbridge connection ─────────────────────────────────────────────
+  var ros;
+
+  function connectRos() {
+    ros = new ROSLIB.Ros({ url: ROSBRIDGE_URL });
+
+    ros.on('connection', function () {
+      connWarn.style.display = 'none';
+      setStatus('idle', '待機中');
+      speakBtn.disabled = false;
+      subscribeStatus();
+    });
+
+    ros.on('error', function (err) {
+      console.error('rosbridge error:', err);
+      connWarn.style.display = 'block';
+      setStatus('error', 'rosbridge エラー');
+      speakBtn.disabled = true;
+    });
+
+    ros.on('close', function () {
+      connWarn.style.display = 'block';
+      setStatus('idle', 'rosbridge 切断 — 再接続中…');
+      speakBtn.disabled = true;
+      setTimeout(connectRos, RECONNECT_DELAY);
+    });
+  }
+
+  // ── ROS topics ───────────────────────────────────────────────────────
+  var speakTopic;
+
+  function subscribeStatus() {
+    speakTopic = new ROSLIB.Topic({
+      ros: ros,
+      name: '/voicevox/speak',
+      messageType: 'std_msgs/String',
+    });
+
+    var statusTopic = new ROSLIB.Topic({
+      ros: ros,
+      name: '/voicevox/status',
+      messageType: 'std_msgs/String',
+    });
+
+    statusTopic.subscribe(function (msg) {
+      try {
+        var data   = JSON.parse(msg.data);
+        var labels = { idle: '待機中', speaking: '発話中', error: 'エラー' };
+        setStatus(data.state, data.message || labels[data.state] || data.state);
+      } catch (e) {
+        console.error('Failed to parse /voicevox/status:', e);
+      }
+    });
+  }
+
+  // ── Speak button ─────────────────────────────────────────────────────
+  speakBtn.addEventListener('click', function () {
+    var text = textEl.value.trim();
+    if (!text) { textEl.focus(); return; }
+    if (!speakTopic) { return; }
+
+    speakTopic.publish(new ROSLIB.Message({
+      data: JSON.stringify({
+        text:       text,
+        speaker_id: parseInt(speakerSel.value, 10),
+        speed:      parseFloat(speedEl.value),
+        volume:     parseFloat(volumeEl.value),
+      }),
+    }));
+  });
+
+  // ── Boot ─────────────────────────────────────────────────────────────
+  connectRos();
+}());
+</script>
+</body>
+</html>

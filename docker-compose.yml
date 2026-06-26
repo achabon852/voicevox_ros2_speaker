@@ -1,0 +1,20 @@
+services:
+  voicevox:
+    image: voicevox/voicevox_engine:cpu-ubuntu20.04-latest
+    # host networking so synth_node reaches VOICEVOX at localhost:50021
+    network_mode: host
+    restart: unless-stopped
+
+  ros2:
+    build: .
+    depends_on:
+      - voicevox
+    # host networking is required for CycloneDDS multicast to reach robots on the LAN
+    network_mode: host
+    user: "1000:1000"
+    environment:
+      - VOICEVOX_URL=http://localhost:50021
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+      - HOME=/tmp
+      - ROS_LOG_DIR=/tmp/ros_logs
+    restart: unless-stopped
