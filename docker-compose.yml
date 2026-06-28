@@ -17,4 +17,7 @@ services:
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
       - HOME=/tmp
       - ROS_LOG_DIR=/tmp/ros_logs
+      - CYCLONEDDS_URI=file:///etc/cyclonedds.xml
+    volumes:
+      - ./cyclonedds.xml:/etc/cyclonedds.xml:ro
     restart: unless-stopped

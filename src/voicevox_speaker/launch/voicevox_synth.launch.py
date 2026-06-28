@@ -31,8 +31,13 @@ def generate_launch_description() -> LaunchDescription:
         ),
 
         # Static HTTP server for the web UI (port 8080, LAN accessible)
+        # Wrapped in a retry loop so a transient "port in use" at startup doesn't
+        # leave the server permanently dead (same resilience rosbridge has built in).
         ExecuteProcess(
-            cmd=['python3', '-m', 'http.server', '8080', '--bind', '0.0.0.0'],
+            cmd=[
+                'bash', '-c',
+                'until python3 -m http.server 8080 --bind 0.0.0.0; do sleep 2; done',
+            ],
             cwd=web_dir,
             name='web_http_server',
             output='screen',

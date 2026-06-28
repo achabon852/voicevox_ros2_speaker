@@ -20,19 +20,19 @@ class PlayerNode(Node):
         self.get_logger().info(f'Playing {len(wav_bytes)} bytes')
         try:
             subprocess.run(
-                ['paplay'],
+                ['aplay', '-q', '-'],
                 input=wav_bytes,
                 check=True,
                 timeout=60,
             )
         except FileNotFoundError:
             self.get_logger().error(
-                'paplay not found. Install pulseaudio-utils: sudo apt install pulseaudio-utils'
+                'aplay not found. Install alsa-utils: sudo apt install alsa-utils'
             )
         except subprocess.CalledProcessError as e:
-            self.get_logger().error(f'paplay exited with error: {e}')
+            self.get_logger().error(f'aplay exited with error: {e}')
         except subprocess.TimeoutExpired:
-            self.get_logger().error('paplay timed out')
+            self.get_logger().error('aplay timed out')
 
 
 def main(args=None) -> None:

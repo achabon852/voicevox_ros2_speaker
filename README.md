@@ -22,7 +22,7 @@
          ↕  ROS2 DDS (CycloneDDS, 同一 ROS_DOMAIN_ID, 同一 LAN)
 
 [ロボット — ROS2 Jazzy ネイティブ]
-   └── player_node                ← /voicevox/audio → paplay → ロボットスピーカー
+   └── player_node                ← /voicevox/audio → aplay → ロボットスピーカー
 ```
 
 ### ROS2 トピック
@@ -55,7 +55,7 @@
 |------|------|
 | OS | Ubuntu 24.04 LTS (推奨) |
 | ROS2 | Jazzy Jalisco |
-| 音声再生 | `pulseaudio-utils`（`paplay` コマンド） |
+| 音声再生 | `alsa-utils`（`aplay` コマンド） |
 | ネットワーク | PC と同一 LAN |
 
 ---
@@ -73,7 +73,7 @@ sudo chmod a+r /etc/apt/keyrings/docker.gpg
 
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
     https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) stable" \
-    | sudo tee /etc/apt/sources/docker.list > /dev/null
+    | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
 sudo apt update
 sudo apt install -y docker-ce docker-ce-cli containerd.io \
@@ -81,32 +81,56 @@ sudo apt install -y docker-ce docker-ce-cli containerd.io \
 sudo usermod -aG docker $USER && newgrp docker
 ```
 
-### 2. ROS_DOMAIN_ID を決める
+### 2. cyclonedds.xml にロボットの IP を設定
 
-ロボット側と **同じ値** を使います（0〜232 の整数）。ここでは例として `10` を使用。
+`cyclonedds.xml` を開き、`<Peer address>` をロボットの実際の IP アドレスに書き換えます。
 
 ```bash
-export ROS_DOMAIN_ID=10
+# ロボットの IP 確認（ロボット側で実行）
+hostname -I
+
+# cyclonedds.xml を編集（PC 側）
+nano cyclonedds.xml
 ```
 
-`.bashrc` に書いておくと毎回不要です:
+```xml
+<Discovery>
+  <Peers>
+    <Peer address="192.168.1.98"/>  ← ロボットの IP に変更
+  </Peers>
+</Discovery>
+```
+
+> **WSL2 ネットワークについて**
+> WSL2 の eth0 は LAN とは別サブネット（`172.x.x.x`）に割り当てられます。
+> `cyclonedds.xml` でロボットの IP を明示的に peer 指定することで、
+> CycloneDDS が正しくロボットへデータを送れるようになります。
+
+### 3. ROS_DOMAIN_ID を決める
+
+ロボット側と **同じ値** を使います（0〜232 の整数）。
+
 ```bash
-echo 'export ROS_DOMAIN_ID=10' >> ~/.bashrc
+# ロボット側の ROS_DOMAIN_ID を確認
+# （ロボット側で実行: echo $ROS_DOMAIN_ID）
+
+# PC 側に同じ値を設定（例: 50）
+export ROS_DOMAIN_ID=50
 ```
 
-### 3. コンテナをビルド・起動
+### 4. コンテナをビルド・起動
 
 ```bash
 cd ~/voicevox_ros2_jazzy
 
 # 初回：イメージビルド込みで起動
-ROS_DOMAIN_ID=10 docker compose up --build -d
+ROS_DOMAIN_ID=50 docker compose up --build -d
 
 # 2回目以降
-ROS_DOMAIN_ID=10 docker compose up -d
+ROS_DOMAIN_ID=50 docker compose up -d
 ```
 
-### 4. 起動確認
+### 5. 起動確認
 
 ```bash
 docker compose ps
@@ -133,7 +157,7 @@ Serving HTTP on 0.0.0.0 port 8080
 # 依存パッケージ
 sudo apt install -y \
     ros-jazzy-rmw-cyclonedds-cpp \
-    pulseaudio-utils \
+    alsa-utils \
     python3-pip
 ```
 
@@ -153,7 +177,7 @@ source install/setup.bash
 ### 3. ROS_DOMAIN_ID を PC 側と合わせて player_node を起動
 
 ```bash
-export ROS_DOMAIN_ID=10
+export ROS_DOMAIN_ID=50          # PC 側と同じ値
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 
 ros2 launch voicevox_speaker voicevox_player.launch.py
@@ -175,34 +199,33 @@ http://<PC の IP アドレス>:8080
 
 ### B) ROS2 コマンドラインから
 
-ホスト WSL2 に ROS2 をインストールせずに使う場合は、`docker compose exec` 経由で ros2 コンテナ内のコマンドを実行します。
-
-**`speak_cli` ツール（推奨）**
+**PC 側（docker compose exec 経由）**
 
 ```bash
-# PC 側（ホスト WSL2 から docker compose exec 経由）
-docker compose exec ros2 ros2 run voicevox_speaker speak_cli "こんにちは"
+cd ~/voicevox_ros2_jazzy
+
+# speak_cli ツール
+docker compose exec ros2 bash -c \
+  'source /opt/ros/jazzy/setup.bash && source /ros2_ws/install/setup.bash && \
+   ros2 run voicevox_speaker speak_cli "こんにちは"'
 
 # パラメータ指定
-docker compose exec ros2 ros2 run voicevox_speaker speak_cli "ロボットです" \
-    --speaker-id 3 --speed 1.2 --volume 1.5
+docker compose exec ros2 bash -c \
+  'source /opt/ros/jazzy/setup.bash && source /ros2_ws/install/setup.bash && \
+   ros2 run voicevox_speaker speak_cli "ロボットです" --speaker-id 3 --speed 1.2'
 
-# ヘルプ
-docker compose exec ros2 ros2 run voicevox_speaker speak_cli --help
+# ros2 topic pub で直接送る
+docker compose exec ros2 bash -c \
+  'source /opt/ros/jazzy/setup.bash && \
+   ros2 topic pub --once /voicevox/speak std_msgs/String \
+   "{\"data\": \"{\\\"text\\\": \\\"こんにちは\\\", \\\"speaker_id\\\": 2}\"}"'
 ```
 
-ロボット側（ROS2 Jazzy ネイティブ環境）から実行する場合:
+**ロボット側（ROS2 ネイティブ環境）から**
 
 ```bash
 ros2 run voicevox_speaker speak_cli "こんにちは"
-```
-
-**`ros2 topic pub` で直接送る場合**
-
-```bash
-# PC 側（docker compose exec 経由）
-docker compose exec ros2 ros2 topic pub --once /voicevox/speak std_msgs/String \
-  '{"data": "{\"text\": \"こんにちは\", \"speaker_id\": 2, \"speed\": 1.0, \"volume\": 1.0}"}'
+ros2 run voicevox_speaker speak_cli "ロボットです" --speaker-id 3 --speed 1.2 --volume 1.5
 ```
 
 ---
@@ -226,7 +249,7 @@ docker compose down
 **確認1: ROS_DOMAIN_ID が一致しているか**
 
 ```bash
-# PC 側（コンテナ内）
+# PC 側
 docker compose exec ros2 bash -c 'echo $ROS_DOMAIN_ID'
 
 # ロボット側
@@ -238,36 +261,37 @@ echo $ROS_DOMAIN_ID
 ```bash
 # ロボット側で実行
 ros2 topic list | grep voicevox
-ros2 topic echo /voicevox/audio --no-arr   # メッセージ受信を確認
 ```
 
-**確認3: CycloneDDS のネットワークインタフェース設定**
-
-WSL2 や複数 NIC 環境では、CycloneDDS が正しいインタフェースを選択できないことがあります。
-以下のように明示的に指定してください:
+**確認3: ロボット側でデータが届くか（ボタンを押しながら実行）**
 
 ```bash
-# PC 側（WSL2）のインタフェース名を確認
-ip link show
-
-# 例: eth0 を指定
-export CYCLONEDDS_URI='<CycloneDDS><Domain><General><NetworkInterfaceAddress>eth0</NetworkInterfaceAddress></General></Domain></CycloneDDS>'
+ros2 topic echo /voicevox/audio
 ```
 
-`docker-compose.yml` に追記する場合:
-```yaml
-environment:
-  - CYCLONEDDS_URI=<CycloneDDS><Domain><General><NetworkInterfaceAddress>eth0</NetworkInterfaceAddress></General></Domain></CycloneDDS>
+何も表示されない場合は DDS 通信の問題です。
+
+**解決: cyclonedds.xml のロボット IP を確認**
+
+`cyclonedds.xml` の `<Peer address>` がロボットの実際の IP になっているか確認し、
+コンテナを再起動してください。
+
+```bash
+cat cyclonedds.xml   # <Peer address="..."/> を確認
+ROS_DOMAIN_ID=50 docker compose down && ROS_DOMAIN_ID=50 docker compose up -d
 ```
 
 ### 音が出ない（player_node のログにエラーが出る）
 
 ```bash
-# paplay がインストールされているか確認
-which paplay || sudo apt install -y pulseaudio-utils
+# aplay がインストールされているか確認
+which aplay || sudo apt install -y alsa-utils
 
-# PulseAudio が動作しているか確認
-paplay /usr/share/sounds/alsa/Front_Left.wav
+# 音声デバイスの確認
+aplay -l
+
+# 手動テスト（WAV ファイルで確認）
+aplay /usr/share/sounds/alsa/Front_Left.wav
 ```
 
 ### ブラウザから接続できない
@@ -276,6 +300,15 @@ paplay /usr/share/sounds/alsa/Front_Left.wav
 # WSL2 の IP を確認してブラウザでアクセス
 hostname -I | awk '{print $1}'
 # http://<上記IP>:8080
+```
+
+### docker compose exec で ros2 コマンドが見つからない
+
+`docker compose exec` は ENTRYPOINT を経由しないため、手動で setup.bash をソースする必要があります。
+
+```bash
+docker compose exec ros2 bash -c \
+  'source /opt/ros/jazzy/setup.bash && source /ros2_ws/install/setup.bash && ros2 <コマンド>'
 ```
 
 ---
@@ -287,6 +320,7 @@ hostname -I | awk '{print $1}'
 ├── Dockerfile
 ├── docker-entrypoint.sh
 ├── docker-compose.yml
+├── cyclonedds.xml              # CycloneDDS ネットワーク設定（ロボットIP を要編集）
 ├── README.md
 ├── docs/specs/voicevox_web_speaker.md
 └── src/voicevox_speaker/
@@ -295,7 +329,7 @@ hostname -I | awk '{print $1}'
     ├── requirements.txt
     ├── voicevox_speaker/
     │   ├── synth_node.py       # PC側: 音声合成 → /voicevox/audio パブリッシュ
-    │   ├── player_node.py      # ロボット側: /voicevox/audio → スピーカー再生
+    │   ├── player_node.py      # ロボット側: /voicevox/audio → aplay → スピーカー
     │   ├── speak_cli.py        # CLI発話ツール
     │   └── speaker_node.py     # (旧) PCローカル再生用（互換性維持）
     ├── launch/

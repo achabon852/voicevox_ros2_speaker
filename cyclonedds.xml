@@ -1,0 +1,16 @@
+<CycloneDDS>
+  <Domain>
+    <General>
+      <!-- Use eth0 only — avoids Docker bridge interfaces (br-*, docker0) on WSL2 -->
+      <Interfaces>
+        <NetworkInterface name="eth0" multicast="true"/>
+      </Interfaces>
+    </General>
+    <Discovery>
+      <!-- Explicitly register the robot as a peer for reliable unicast discovery -->
+      <Peers>
+        <Peer address="192.168.1.98"/>
+      </Peers>
+    </Discovery>
+  </Domain>
+</CycloneDDS>
